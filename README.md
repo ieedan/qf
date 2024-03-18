@@ -20,7 +20,7 @@ qf *index* # Find all files that contain 'index'
 ### Flags
 - `--i[args]` Ignore directories.
 - `--a[args]` Allow directories.
-- `--r` Only apply allow to root directory.
+- `--r` Only apply flags to cwd (Current Working Directory).
 
 #### `--i[args]`
 This allows you to skip searching files in the provided subdirectories. That looks something like this. 
@@ -49,7 +49,7 @@ qf * --a[*]
 ```
 
 #### `--r`
-This flag effects where the `--a` flag applies. When the `--r` flag is provided the `--a` flag only applies to the current working directory.
+This flag effects where the `--a` and `--i` flags apply. When the `--r` flag is provided the `--a` and `i` flags only apply to the cwd.
 
 For example lets say your file tree looks like this:
 ```text
@@ -89,3 +89,29 @@ qf qf.exe --a[target] --r
 ```
 
 Now the `--a` rule applied on our cwd but does not apply to any sub-directories.
+
+Another example may be you may want to ignore files but only at the root directory.
+
+Lets say your file structure looks like this:
+```text
+root
+├── modules
+├── src
+├── release
+|   └── random.exe
+└── target
+    ├── debug
+    |   └── qf.exe
+    └── release
+        └── qf.exe
+```
+
+Here we may want to search for a `*.exe` file but running `qf *.exe` will return all executables under the cwd. What if you want to ignore the release directory at the root but not any sub-folders?
+
+Again this is the utility of the `--r` flag. 
+
+```bash
+qf *.exe --i[release] --r
+```
+
+This will ignore the `release` directory but only at the cwd. Any sub-folders will still be searched.

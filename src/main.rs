@@ -93,8 +93,10 @@ fn main() {
 
             let params = params.split(',');
 
-            for (_, param) in params.into_iter().enumerate() {
-                options.ignore_directories.push(param.to_string().to_lowercase())
+            for param in params {
+                options
+                    .ignore_directories
+                    .push(param.to_string().to_lowercase())
             }
         } else if found_flag == "--a" {
             // allow folders
@@ -102,8 +104,10 @@ fn main() {
 
             let params = params.split(',');
 
-            for (_, param) in params.into_iter().enumerate() {
-                options.allow_directories.push(param.to_string().to_lowercase())
+            for param in params {
+                options
+                    .allow_directories
+                    .push(param.to_string().to_lowercase())
             }
         } else if found_flag == "--r" {
             options.root_only = true;
@@ -123,7 +127,10 @@ fn main() {
     let result = find(&search, paths, options);
 
     let elapsed = now.elapsed();
-    println!("Searched {} files. Found {} files.", result.searched, result.found);
+    println!(
+        "Searched {} files. Found {} files.",
+        result.searched, result.found
+    );
     println!("Completed in {:.2?}", elapsed)
 }
 
@@ -133,23 +140,23 @@ fn find(search: &str, paths: ReadDir, options: Options) -> SearchResult {
         searched: 0,
     };
 
-    for (_, path) in paths.into_iter().enumerate() {
+    for path in paths {
         if let Result::Ok(entry) = path {
             let metadata = entry.metadata();
             let name = entry.file_name().into_string().unwrap_or_default();
 
             if let Result::Ok(data) = metadata {
                 if data.is_dir() {
-                    if options.ignore_directories.contains(&name.to_lowercase()) {
+                    let instant_allowed = options.root_only && !options.root;
+
+                    if !instant_allowed && options.ignore_directories.contains(&name.to_lowercase()) {
                         continue;
                     }
 
-                    // If there are no rules or the rules only apply to the root and we are not at the root
-                    // then we continue to search this directory
-                    let instant_allowed = (options.root_only && !options.root)
-                        || options.allow_directories.len() == 0;
-
-                    if !instant_allowed && !options.allow_directories.contains(&name.to_lowercase()) {
+                    if !instant_allowed
+                        && (options.allow_directories.len() > 0
+                            && !options.allow_directories.contains(&name.to_lowercase()))
+                    {
                         continue;
                     }
 
