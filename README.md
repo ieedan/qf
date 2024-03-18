@@ -3,7 +3,7 @@ qf or (Quick Find) is a CLI file search implementation that makes file searching
 
 ### Basic Use
 ``` bash
-# find all files that match 'main.js'
+# find all files that match 'index.js'
 qf index.js
 ```
 
