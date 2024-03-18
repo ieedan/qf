@@ -52,13 +52,13 @@ qf * --a[*]
 This flag effects where the `--a` flag applies. When the `--r` flag is provided the `--a` flag only applies to the current working directory.
 
 For example lets say your file tree looks like this:
-```bash
-qf
-|--modules
-|--src
-|--target
-   |--release
-      |--qf.exe
+```text
+root
+├── modules
+├── src
+└── target
+    └── release
+        └── qf.exe
 ```
 
 If I run `qf qf.exe` alone I will find the file I am looking for. However I had to search every file in modules and src to do so.
