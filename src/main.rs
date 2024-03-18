@@ -1,3 +1,5 @@
+use std::fs::DirEntry;
+use std::thread;
 use std::time::Instant;
 use std::{
     env,
@@ -15,6 +17,7 @@ struct SearchResult {
     searched: u32,
 }
 
+#[derive(Clone)]
 struct Options {
     // Skips searching these directories
     ignore_directories: Vec<String>,
@@ -124,7 +127,7 @@ fn main() {
         println!("Ignoring {:?}", options.ignore_directories);
     }
 
-    let result = find(&search, paths, options);
+    let result = find_files(&search, paths, options);
 
     let elapsed = now.elapsed();
     println!(
@@ -134,53 +137,106 @@ fn main() {
     println!("Completed in {:.2?}", elapsed)
 }
 
-fn find(search: &str, paths: ReadDir, options: Options) -> SearchResult {
+fn find_files(search: &str, paths: ReadDir, options: Options) -> SearchResult {
     let mut result = SearchResult {
         found: 0,
         searched: 0,
     };
 
+    let mut entries: Vec<DirEntry> = Vec::new();
     for path in paths {
         if let Result::Ok(entry) = path {
-            let metadata = entry.metadata();
-            let name = entry.file_name().into_string().unwrap_or_default();
+            entries.push(entry);
+        }
+    }
 
-            if let Result::Ok(data) = metadata {
-                if data.is_dir() {
-                    let instant_allowed = options.root_only && !options.root;
+    let count = entries.len();
 
-                    if !instant_allowed && options.ignore_directories.contains(&name.to_lowercase()) {
-                        continue;
-                    }
+    if count >= 2 {
+        let mid = count / 2;
 
-                    if !instant_allowed
-                        && (options.allow_directories.len() > 0
-                            && !options.allow_directories.contains(&name.to_lowercase()))
-                    {
-                        continue;
-                    }
+        let mut first_half = Vec::new();
+        let mut second_half = Vec::new();
+        for (i, entry) in entries.into_iter().enumerate() {
+            if i > mid {
+                second_half.push(entry);
+            } else {
+                first_half.push(entry);
+            }
+        }
 
-                    let sub_paths = fs::read_dir(entry.path());
-                    if let Result::Ok(sub_paths) = sub_paths {
-                        let sub_options = Options {
-                            root: false, // Set this to false after first iteration
-                            ignore_directories: options.ignore_directories.clone(),
-                            allow_directories: options.allow_directories.clone(),
-                            ..options
-                        };
-                        let sub_res = find(search, sub_paths, sub_options);
-                        result.found += sub_res.found;
-                        result.searched += sub_res.searched;
-                    }
-                } else {
-                    result.searched += 1;
-                    if name.to_lowercase().matches_pattern(&search.to_lowercase()) {
-                        result.found += 1;
-                        print_file(File {
-                            name,
-                            path: entry.path(),
-                        });
-                    }
+        let first_params = (search.to_owned(), options.clone());
+
+        let handle_first = thread::spawn(move || {
+            let search_result = search_entries(&first_params.0, first_half, first_params.1);
+            result.searched += search_result.searched;
+            result.found += search_result.found;
+        });
+
+        let second_params = (search.to_owned(), options.clone());
+
+        let handle_second = thread::spawn(move || {
+            let search_result = search_entries(&second_params.0, second_half, second_params.1);
+            result.searched += search_result.searched;
+            result.found += search_result.found;
+        });
+
+        handle_first.join().unwrap();
+        handle_second.join().unwrap();
+    } else {
+        let search_result = search_entries(search, entries, options);
+        result.searched += search_result.searched;
+        result.found += search_result.found;
+    }
+
+    result
+}
+
+fn search_entries(search: &str, entries: Vec<DirEntry>, options: Options) -> SearchResult {
+    let mut result = SearchResult {
+        found: 0,
+        searched: 0,
+    };
+
+    for entry in entries {
+        let metadata = entry.metadata();
+        let name = entry.file_name().into_string().unwrap_or_default();
+
+        if let Result::Ok(data) = metadata {
+            if data.is_dir() {
+                let instant_allowed = options.root_only && !options.root;
+
+                if !instant_allowed && options.ignore_directories.contains(&name.to_lowercase()) {
+                    continue;
+                }
+
+                if !instant_allowed
+                    && (options.allow_directories.len() > 0
+                        && !options.allow_directories.contains(&name.to_lowercase()))
+                {
+                    continue;
+                }
+
+                let sub_paths = fs::read_dir(entry.path());
+                if let Result::Ok(sub_paths) = sub_paths {
+                    let sub_options = Options {
+                        root: false, // Set this to false after first iteration
+                        ignore_directories: options.ignore_directories.clone(),
+                        allow_directories: options.allow_directories.clone(),
+                        ..options
+                    };
+                    let sub_res = find_files(search, sub_paths, sub_options);
+                    result.found += sub_res.found;
+                    result.searched += sub_res.searched;
+                }
+            } else {
+                result.searched += 1;
+                if name.to_lowercase().matches_pattern(&search.to_lowercase()) {
+                    result.found += 1;
+                    print_file(File {
+                        name,
+                        path: entry.path(),
+                    });
                 }
             }
         }
