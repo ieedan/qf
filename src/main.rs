@@ -12,21 +12,37 @@ struct File {
     path: PathBuf,
 }
 
+#[derive(Debug)]
 struct SearchResult {
     found: u32,
     searched: u32,
 }
 
-#[derive(Clone)]
-struct Options {
-    // Skips searching these directories
-    ignore_directories: Vec<String>,
-    // Only searches these directories
-    allow_directories: Vec<String>,
-    // When enabled allowed directories only apply root directory
+#[derive(Clone, Debug)]
+struct DirList {
+    directories: Vec<String>,
     root_only: bool,
+}
+
+impl DirList {
+    fn new() -> Self {
+        DirList {
+            directories: Vec::new(),
+            root_only: false
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Options {
+    ignore: DirList,
+    allow: DirList,
+    // Will run non-concurrently when true
+    disable_concurrency: bool,
     // True when the parent directory is the working directory
     root: bool,
+    // The minimum directories to allow threads to be spawned must be minimum 2
+    min_concurrent_directories: i32,
 }
 
 trait PatternMatch {
@@ -62,7 +78,7 @@ impl PatternMatch for String {
 
 const WILD_CARD: char = '*';
 
-const FLAGS: [&str; 3] = ["--i", "--a", "--r"];
+const FLAGS: [&str; 6] = ["--i", "--ri", "--a", "--ra", "--dc", "--c"];
 
 fn main() {
     let now = Instant::now();
@@ -71,9 +87,10 @@ fn main() {
     let flags = env::args().skip(2);
 
     let mut options = Options {
-        ignore_directories: vec![],
-        allow_directories: vec![],
-        root_only: false,
+        ignore: DirList::new(),
+        allow: DirList::new(),
+        disable_concurrency: false,
+        min_concurrent_directories: 2,
         root: true,
     };
 
@@ -86,8 +103,7 @@ fn main() {
         }
 
         if found_flag == "" {
-            println!("qf does not provide a definition for the flag provided {flag}");
-            continue;
+            panic!("invalid argument '{flag}' found");
         }
 
         if found_flag == "--i" {
@@ -98,7 +114,7 @@ fn main() {
 
             for param in params {
                 options
-                    .ignore_directories
+                    .ignore.directories
                     .push(param.to_string().to_lowercase())
             }
         } else if found_flag == "--a" {
@@ -109,11 +125,27 @@ fn main() {
 
             for param in params {
                 options
-                    .allow_directories
+                    .allow.directories
                     .push(param.to_string().to_lowercase())
             }
-        } else if found_flag == "--r" {
-            options.root_only = true;
+        } else if found_flag == "--c" {
+            let param = &flag[4..flag.len() - 1]; // Also trims '[]'
+
+            let msg = format!("{param} is not a valid value for the --c flag");
+
+            let value = param.parse::<i32>().expect(&msg);
+
+            if value < 2 {
+                panic!("The value for --c: {param} is too small. The minimum value is 2.");
+            }
+
+            options.min_concurrent_directories = value;
+        } else if found_flag == "--ra" {
+            options.allow.root_only = true;
+        } else if found_flag == "--ri" {
+            options.ignore.root_only = true;
+        } else if found_flag == "--dc" {
+            options.disable_concurrency = true;
         }
     }
 
@@ -123,8 +155,8 @@ fn main() {
 
     println!("Searching for {search}...");
 
-    if options.ignore_directories.len() > 0 {
-        println!("Ignoring {:?}", options.ignore_directories);
+    if options.ignore.directories.len() > 0 {
+        println!("Ignoring {:?}", options.ignore.directories);
     }
 
     let result = find_files(&search, paths, options);
@@ -152,7 +184,11 @@ fn find_files(search: &str, paths: ReadDir, options: Options) -> SearchResult {
 
     let count = entries.len();
 
-    if count >= 2 {
+    if count < 4 || options.disable_concurrency {
+        let search_result = search_entries(search, entries, options.clone());
+        result.searched += search_result.searched;
+        result.found += search_result.found;
+    } else {
         let mid = count / 2;
 
         let mut first_half = Vec::new();
@@ -168,25 +204,19 @@ fn find_files(search: &str, paths: ReadDir, options: Options) -> SearchResult {
         let first_params = (search.to_owned(), options.clone());
 
         let handle_first = thread::spawn(move || {
-            let search_result = search_entries(&first_params.0, first_half, first_params.1);
-            result.searched += search_result.searched;
-            result.found += search_result.found;
+            return search_entries(&first_params.0, first_half, first_params.1);
         });
 
         let second_params = (search.to_owned(), options.clone());
 
         let handle_second = thread::spawn(move || {
-            let search_result = search_entries(&second_params.0, second_half, second_params.1);
-            result.searched += search_result.searched;
-            result.found += search_result.found;
+            return search_entries(&second_params.0, second_half, second_params.1);
         });
 
-        handle_first.join().unwrap();
-        handle_second.join().unwrap();
-    } else {
-        let search_result = search_entries(search, entries, options);
-        result.searched += search_result.searched;
-        result.found += search_result.found;
+        let first_res = handle_first.join().unwrap();
+        let second_res = handle_second.join().unwrap();
+        result.searched += first_res.searched + second_res.searched;
+        result.found += first_res.found + second_res.found;
     }
 
     result
@@ -204,15 +234,17 @@ fn search_entries(search: &str, entries: Vec<DirEntry>, options: Options) -> Sea
 
         if let Result::Ok(data) = metadata {
             if data.is_dir() {
-                let instant_allowed = options.root_only && !options.root;
+                let instant_allowed = options.ignore.root_only && !options.root;
 
-                if !instant_allowed && options.ignore_directories.contains(&name.to_lowercase()) {
+                if !instant_allowed && options.ignore.directories.contains(&name.to_lowercase()) {
                     continue;
                 }
 
+                let instant_allowed = options.allow.root_only && !options.root;
+
                 if !instant_allowed
-                    && (options.allow_directories.len() > 0
-                        && !options.allow_directories.contains(&name.to_lowercase()))
+                    && (options.allow.directories.len() > 0
+                        && !options.allow.directories.contains(&name.to_lowercase()))
                 {
                     continue;
                 }
@@ -221,8 +253,8 @@ fn search_entries(search: &str, entries: Vec<DirEntry>, options: Options) -> Sea
                 if let Result::Ok(sub_paths) = sub_paths {
                     let sub_options = Options {
                         root: false, // Set this to false after first iteration
-                        ignore_directories: options.ignore_directories.clone(),
-                        allow_directories: options.allow_directories.clone(),
+                        ignore: options.ignore.clone(),
+                        allow: options.allow.clone(),
                         ..options
                     };
                     let sub_res = find_files(search, sub_paths, sub_options);
