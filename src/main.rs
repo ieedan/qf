@@ -103,7 +103,7 @@ fn main() {
         }
 
         if found_flag == "" {
-            panic!("invalid argument '{flag}' found");
+            panic!("'{flag}' is not valid");
         }
 
         if found_flag == "--i" {
