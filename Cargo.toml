@@ -12,7 +12,6 @@ license = "MIT"
 license_file = "LICENSE"
 keywords = ["File", "Search", "Quick", "Find"]
 
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
