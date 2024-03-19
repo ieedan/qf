@@ -32,7 +32,7 @@ qf *index* # Find all files that contain 'index'
 ```
 
 ### Flags
-- `--i[args]` Ignore directories. [Docs](#iargs)
+- `--i[args]` Ignore directories. [Docs](#i[args])
 - `--ri` Only apply ignore flag to cwd (Current Working Directory). [Docs](#ri)
 - `--a[args]` Allow directories. [Docs](#aargs)
 - `--ra` Only apply allow flag to cwd (Current Working Directory). [Docs](#ra)
